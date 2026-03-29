@@ -16,7 +16,8 @@ Explorer: https://explorer.iota.org/object/0x3de46f837c3f0eb735737e55ed54fd85706
 
 ## Backend API
 
-**Base URL:** `https://YOUR_DEPLOYED_URL` (or `http://localhost:3001` for local dev)
+**Base URL (LIVE):** `https://trustbridge-api-by76.onrender.com`
+**Base URL (local dev):** `http://localhost:3001`
 
 There are only **4 endpoints**:
 
@@ -36,7 +37,7 @@ There are only **4 endpoints**:
 On page load, fetch the demo DID:
 
 ```javascript
-const res = await fetch('https://YOUR_BACKEND_URL/api/identity/demo');
+const res = await fetch('https://trustbridge-api-by76.onrender.com/api/identity/demo');
 const data = await res.json();
 
 // data contains:
@@ -68,7 +69,7 @@ const data = await res.json();
 ### Step 2: Create a New DID (optional — for demo "Create Profile" flow)
 
 ```javascript
-const res = await fetch('https://YOUR_BACKEND_URL/api/identity/create-did', {
+const res = await fetch('https://trustbridge-api-by76.onrender.com/api/identity/create-did', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ companyName: 'My New Company' }),
@@ -88,7 +89,7 @@ const data = await res.json();
 
 ```javascript
 const did = 'did:iota:testnet:0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369';
-const res = await fetch(`https://YOUR_BACKEND_URL/api/identity/resolve/${did}`);
+const res = await fetch(`https://trustbridge-api-by76.onrender.com/api/identity/resolve/${did}`);
 const data = await res.json();
 
 // {

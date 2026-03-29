@@ -1,0 +1,948 @@
+openapi: 3.0.3
+info:
+  title: TrustBridge API
+  description: |
+    Backend API for TrustBridge — a portable business trust layer built on IOTA.
+
+    ## Overview
+    TrustBridge lets companies create reusable trust profiles with evidence-backed signals
+    and live on-chain status. Three roles interact with the system:
+
+    - **Attester**: A country's company registry or accredited authority that verifies companies exist
+    - **Company**: A business that builds a trust profile (documents, stake, deals)
+    - **Verifier**: Any party that checks a company's trust profile before doing business
+
+    ## Trust Stars (0–4)
+    | Star | Name | How to earn |
+    |------|------|------------|
+    | ★ | Verified | Attester (authority) issues a Verifiable Credential confirming the company is registered |
+    | ★★ | Staked | Company locks IOTA tokens as collateral in the escrow pool |
+    | ★★★ | Proven | Company completes 3+ deals on the platform |
+    | ★★★★ | Vouched | Another company vouches for this company |
+
+    ## On-chain anchoring
+    All trust events are recorded on the IOTA Rebased (Move) blockchain.
+    Verifiable Credentials are issued via IOTA Identity (W3C DID + VC standards).
+    An audit trail with hash-chain integrity is maintained for every profile.
+
+  version: 0.1.0
+  contact:
+    name: TrustBridge Team
+
+servers:
+  - url: http://localhost:3001
+    description: Local development
+  - url: https://api.trustbridge.io
+    description: Production (future)
+
+tags:
+  - name: Health
+    description: Server status
+  - name: Identity
+    description: DID creation and Verifiable Credential operations (IOTA Identity)
+  - name: Profile
+    description: On-chain trust profile management
+  - name: Staking
+    description: Token staking and slashing
+  - name: Attestation
+    description: On-chain attestation records (linked to Verifiable Credentials)
+  - name: Audit
+    description: Tamper-evident audit trail
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns server status, connected network, and deployment info.
+      responses:
+        '200':
+          description: Server is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  network:
+                    type: string
+                    example: testnet
+                  packageId:
+                    type: string
+                    example: "0xabc123..."
+                  stakePoolId:
+                    type: string
+                    example: "0xdef456..."
+
+  # ──────────────────────────────────────────────
+  # IDENTITY — DID + Verifiable Credentials
+  # ──────────────────────────────────────────────
+
+  /api/identity/create-did:
+    post:
+      tags: [Identity]
+      summary: Create a DID for a company or attester
+      description: |
+        Creates a Decentralized Identifier (DID) on the IOTA network.
+        Both companies and attesters need a DID before they can participate.
+        Format: `did:iota:testnet:0x...`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [companyName]
+              properties:
+                companyName:
+                  type: string
+                  description: Legal name of the company or authority
+                  example: "Acme Corporation Ltd."
+            examples:
+              company:
+                summary: Create DID for a company
+                value:
+                  companyName: "Acme Corporation Ltd."
+              attester:
+                summary: Create DID for an attester (authority)
+                value:
+                  companyName: "German Federal Company Registry"
+      responses:
+        '200':
+          description: DID created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateDIDResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/identity/issue-credential:
+    post:
+      tags: [Identity]
+      summary: Attester issues a Verifiable Credential to a company
+      description: |
+        The attester (e.g., a country's company registry) issues a signed
+        Verifiable Credential confirming the company's registration.
+        Returns a JWT and its SHA-256 hash for on-chain anchoring.
+
+        **This is Step 3 in the demo flow** — grants the ★ Verified star.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueCredentialRequest'
+            example:
+              issuerDid: "did:iota:testnet:0x84b6..."
+              subjectDid: "did:iota:testnet:0x7fb8..."
+              credentialType: "BusinessRegistrationCredential"
+              claims:
+                registrationNumber: "HRB-12345"
+                jurisdiction: "DE"
+                incorporationDate: "2020-06-15"
+                legalName: "Acme Corporation Ltd."
+      responses:
+        '200':
+          description: Credential issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueCredentialResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/identity/verify-credential:
+    post:
+      tags: [Identity]
+      summary: Verify a Verifiable Credential
+      description: |
+        Verifies a VC JWT by checking the signature, resolving the issuer's DID,
+        and validating the credential structure. Used by the **Verifier** role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [jwt]
+              properties:
+                jwt:
+                  type: string
+                  description: The Verifiable Credential JWT to verify
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyCredentialResponse'
+
+  /api/identity/dids:
+    get:
+      tags: [Identity]
+      summary: List all DIDs (demo helper)
+      description: Returns all DIDs created in this session. Useful for testing.
+      responses:
+        '200':
+          description: List of DIDs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  dids:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        did:
+                          type: string
+                        document:
+                          type: object
+
+  /api/identity/credentials:
+    get:
+      tags: [Identity]
+      summary: List all issued credentials (demo helper)
+      responses:
+        '200':
+          description: List of credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  credentials:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        hash:
+                          type: string
+                        jwt:
+                          type: string
+
+  # ──────────────────────────────────────────────
+  # PROFILE — On-chain Trust Profiles
+  # ──────────────────────────────────────────────
+
+  /api/profile/create:
+    post:
+      tags: [Profile]
+      summary: Create a trust profile on-chain
+      description: |
+        Creates a `TrustProfile` Move object on IOTA for the company.
+        Starts with 0 trust stars. The company must have a DID first.
+
+        **This is Step 2 in the demo flow.**
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProfileRequest'
+            example:
+              companyName: "Acme Corporation Ltd."
+              domain: "acme.com"
+              did: "did:iota:testnet:0x7fb8..."
+      responses:
+        '200':
+          description: Profile created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateProfileResponse'
+
+  /api/profile/{id}:
+    get:
+      tags: [Profile]
+      summary: Get a trust profile
+      description: Queries the on-chain TrustProfile object and returns its fields.
+      parameters:
+        - $ref: '#/components/parameters/ProfileId'
+      responses:
+        '200':
+          description: Profile data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResponse'
+        '404':
+          description: Profile not found
+
+  /api/profile/{id}/verify:
+    post:
+      tags: [Profile]
+      summary: Mark profile as verified (★)
+      description: |
+        Admin marks the profile as verified after an attester has issued
+        a Verifiable Credential. Grants the first trust star.
+      parameters:
+        - $ref: '#/components/parameters/ProfileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCapRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TransactionSuccess'
+
+  /api/profile/{id}/record-deal:
+    post:
+      tags: [Profile]
+      summary: Record a completed deal
+      description: |
+        Increments the deal counter. After 3 deals, the profile automatically
+        earns the ★★★ Proven star.
+      parameters:
+        - $ref: '#/components/parameters/ProfileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCapRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TransactionSuccess'
+
+  /api/profile/{id}/vouch:
+    post:
+      tags: [Profile]
+      summary: Mark profile as vouched (★★★★)
+      description: Grants the fourth trust star after receiving peer vouchers.
+      parameters:
+        - $ref: '#/components/parameters/ProfileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCapRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TransactionSuccess'
+
+  /api/profile/{id}/slash:
+    post:
+      tags: [Profile]
+      summary: Slash a fraudulent company
+      description: |
+        Resets all trust stars to 0 and marks the profile as slashed.
+        **Irreversible.** The company loses its reputation permanently.
+      parameters:
+        - $ref: '#/components/parameters/ProfileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCapRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TransactionSuccess'
+
+  /api/profile/{id}/trust-chain:
+    get:
+      tags: [Profile]
+      summary: Get full trust chain visualization data
+      description: |
+        Returns the profile, all its trust stars, and the complete audit trail.
+        This is the main endpoint for the **Verifier** role to inspect a company.
+      parameters:
+        - $ref: '#/components/parameters/ProfileId'
+      responses:
+        '200':
+          description: Trust chain data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrustChainResponse'
+
+  # ──────────────────────────────────────────────
+  # STAKING
+  # ──────────────────────────────────────────────
+
+  /api/staking/stake:
+    post:
+      tags: [Staking]
+      summary: Stake IOTA tokens as collateral
+      description: |
+        Company locks IOTA tokens in the escrow pool.
+        Minimum stake: 1 IOTA. Grants the ★★ Staked star.
+
+        **This is Step 4 in the demo flow.**
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StakeRequest'
+            example:
+              profileId: "0xabc123..."
+              amount: 10
+      responses:
+        '200':
+          $ref: '#/components/responses/TransactionSuccess'
+
+  /api/staking/unstake:
+    post:
+      tags: [Staking]
+      summary: Withdraw staked tokens
+      description: |
+        Company withdraws their stake. Only works if not slashed.
+        Removes the ★★ Staked star.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId]
+              properties:
+                profileId:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/TransactionSuccess'
+
+  /api/staking/slash:
+    post:
+      tags: [Staking]
+      summary: Slash a company's stake
+      description: |
+        Admin confiscates a fraudulent company's staked tokens.
+        The tokens move to the platform's slashed funds pool.
+        Also slashes the trust profile (all stars → 0).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SlashStakeRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/TransactionSuccess'
+
+  /api/staking/pool:
+    get:
+      tags: [Staking]
+      summary: Get staking pool stats
+      description: Returns total staked, number of stakers, slashed funds, minimum stake.
+      responses:
+        '200':
+          description: Pool stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StakePoolResponse'
+
+  # ──────────────────────────────────────────────
+  # ATTESTATION
+  # ──────────────────────────────────────────────
+
+  /api/attestation/register:
+    post:
+      tags: [Attestation]
+      summary: Register an attestation on-chain
+      description: |
+        Creates an on-chain record linking a Verifiable Credential to a company profile.
+        The credential hash anchors the VC's integrity on the blockchain.
+
+        Call this **after** issuing the credential via `/api/identity/issue-credential`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAttestationRequest'
+      responses:
+        '200':
+          description: Attestation registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterAttestationResponse'
+
+  /api/attestation/revoke:
+    post:
+      tags: [Attestation]
+      summary: Revoke an attestation
+      description: |
+        Marks an on-chain attestation record as revoked.
+        Used when a company fails compliance or the attester withdraws trust.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attestationRecordId, adminCapId]
+              properties:
+                attestationRecordId:
+                  type: string
+                  description: On-chain AttestationRecord object ID
+                adminCapId:
+                  type: string
+                  description: AdminCap object ID
+      responses:
+        '200':
+          $ref: '#/components/responses/TransactionSuccess'
+
+  /api/attestation/{id}:
+    get:
+      tags: [Attestation]
+      summary: Get an attestation record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: AttestationRecord object ID
+      responses:
+        '200':
+          description: Attestation record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttestationRecordResponse'
+
+  # ──────────────────────────────────────────────
+  # AUDIT
+  # ──────────────────────────────────────────────
+
+  /api/audit/trail/{profileId}:
+    get:
+      tags: [Audit]
+      summary: Get audit trail for a profile
+      description: Returns all trust events for a specific company profile.
+      parameters:
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Audit trail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditTrailResponse'
+
+  /api/audit/log:
+    get:
+      tags: [Audit]
+      summary: Get the full audit log
+      description: Returns all trust events across all profiles.
+      responses:
+        '200':
+          description: Full audit log
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditTrailResponse'
+
+  /api/audit/verify:
+    get:
+      tags: [Audit]
+      summary: Verify audit chain integrity
+      description: |
+        Checks that the hash chain of the audit trail has not been tampered with.
+        Each entry's hash incorporates the previous entry's hash.
+      responses:
+        '200':
+          description: Integrity check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  isValid:
+                    type: boolean
+                    description: True if the chain is intact
+                  brokenAt:
+                    type: integer
+                    description: Index where the chain breaks (if broken)
+
+# ══════════════════════════════════════════════
+# COMPONENTS
+# ══════════════════════════════════════════════
+
+components:
+  parameters:
+    ProfileId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: TrustProfile on-chain object ID (0x...)
+
+  responses:
+    BadRequest:
+      description: Missing or invalid parameters
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+    TransactionSuccess:
+      description: Transaction executed on-chain
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+              transactionDigest:
+                type: string
+                description: IOTA transaction digest (can be verified on explorer)
+
+  schemas:
+    # ── Identity ──
+
+    CreateDIDResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        did:
+          type: string
+          example: "did:iota:testnet:0x84b6301c..."
+        document:
+          type: object
+          description: W3C DID Document
+
+    IssueCredentialRequest:
+      type: object
+      required: [issuerDid, subjectDid, credentialType]
+      properties:
+        issuerDid:
+          type: string
+          description: DID of the attester (company registry authority)
+        subjectDid:
+          type: string
+          description: DID of the company receiving the credential
+        credentialType:
+          type: string
+          description: Type of credential
+          enum:
+            - BusinessRegistrationCredential
+            - IncorporationCertificate
+            - TaxComplianceCertificate
+            - AMLComplianceCertificate
+        claims:
+          type: object
+          description: Additional claims about the company
+          properties:
+            registrationNumber:
+              type: string
+            jurisdiction:
+              type: string
+            incorporationDate:
+              type: string
+              format: date
+            legalName:
+              type: string
+
+    IssueCredentialResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        jwt:
+          type: string
+          description: Signed Verifiable Credential JWT
+        credentialHash:
+          type: string
+          description: SHA-256 hash of the JWT (for on-chain anchoring)
+
+    VerifyCredentialResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        verification:
+          type: object
+          properties:
+            isValid:
+              type: boolean
+            issuerDid:
+              type: string
+            subjectDid:
+              type: string
+            credentialType:
+              type: string
+            issuedAt:
+              type: string
+              format: date-time
+            error:
+              type: string
+
+    # ── Profile ──
+
+    CreateProfileRequest:
+      type: object
+      required: [companyName, domain, did]
+      properties:
+        companyName:
+          type: string
+          description: Legal company name
+        domain:
+          type: string
+          description: Company website domain
+        did:
+          type: string
+          description: Company's DID (created via /api/identity/create-did)
+
+    CreateProfileResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        profileId:
+          type: string
+          description: On-chain TrustProfile object ID
+        transactionDigest:
+          type: string
+
+    ProfileResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        profile:
+          $ref: '#/components/schemas/TrustProfile'
+
+    TrustProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        companyName:
+          type: string
+        domain:
+          type: string
+        did:
+          type: string
+        trustStars:
+          type: integer
+          minimum: 0
+          maximum: 4
+          description: "0=none, 1=Verified, 2=+Staked, 3=+Proven, 4=+Vouched"
+        isVerified:
+          type: boolean
+          description: "★ Attester issued credential"
+        isStaked:
+          type: boolean
+          description: "★★ Tokens locked as collateral"
+        isProven:
+          type: boolean
+          description: "★★★ Completed 3+ deals"
+        isVouched:
+          type: boolean
+          description: "★★★★ Peer company vouched"
+        completedDeals:
+          type: integer
+        createdAt:
+          type: integer
+          description: Epoch timestamp in milliseconds
+        isSlashed:
+          type: boolean
+          description: Company was flagged as fraudulent
+
+    TrustChainResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        trustChain:
+          type: object
+          properties:
+            profile:
+              $ref: '#/components/schemas/TrustProfile'
+            auditTrail:
+              type: array
+              items:
+                $ref: '#/components/schemas/AuditEntry'
+            stars:
+              type: object
+              properties:
+                verified:
+                  type: boolean
+                staked:
+                  type: boolean
+                proven:
+                  type: boolean
+                vouched:
+                  type: boolean
+                total:
+                  type: integer
+
+    AdminCapRequest:
+      type: object
+      required: [adminCapId]
+      properties:
+        adminCapId:
+          type: string
+          description: AdminCap object ID (held by the contract publisher)
+
+    # ── Staking ──
+
+    StakeRequest:
+      type: object
+      required: [profileId, amount]
+      properties:
+        profileId:
+          type: string
+          description: TrustProfile object ID
+        amount:
+          type: number
+          description: Amount in IOTA (minimum 1 IOTA)
+          minimum: 1
+
+    SlashStakeRequest:
+      type: object
+      required: [profileId, stakerAddress, adminCapId]
+      properties:
+        profileId:
+          type: string
+        stakerAddress:
+          type: string
+          description: IOTA address of the company being slashed
+        adminCapId:
+          type: string
+
+    StakePoolResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        pool:
+          type: object
+          properties:
+            id:
+              type: string
+            minStake:
+              type: integer
+              description: Minimum stake in nanos (1 IOTA = 1,000,000,000 nanos)
+            totalStaked:
+              type: integer
+            totalStakers:
+              type: integer
+            slashedFundsAmount:
+              type: integer
+
+    # ── Attestation ──
+
+    RegisterAttestationRequest:
+      type: object
+      required: [companyProfileId, attesterDid, credentialHash, credentialType]
+      properties:
+        companyProfileId:
+          type: string
+          description: TrustProfile object ID
+        attesterDid:
+          type: string
+          description: DID of the attester who issued the credential
+        credentialHash:
+          type: string
+          description: SHA-256 hash of the VC JWT (hex-encoded)
+        credentialType:
+          type: string
+          description: Type of credential
+
+    RegisterAttestationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        recordId:
+          type: string
+          description: On-chain AttestationRecord object ID
+        transactionDigest:
+          type: string
+
+    AttestationRecordResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        record:
+          type: object
+          properties:
+            id:
+              type: string
+            companyProfileId:
+              type: string
+            attesterDid:
+              type: string
+            credentialHash:
+              type: string
+            credentialType:
+              type: string
+            issuedAt:
+              type: integer
+            revoked:
+              type: boolean
+            revokedAt:
+              type: integer
+
+    # ── Audit ──
+
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        eventType:
+          type: string
+          enum:
+            - PROFILE_CREATED
+            - CREDENTIAL_ISSUED
+            - CREDENTIAL_REVOKED
+            - STAKE_DEPOSITED
+            - STAKE_WITHDRAWN
+            - STAKE_SLASHED
+            - DEAL_RECORDED
+            - VOUCH_CREATED
+            - PROFILE_VERIFIED
+            - PROFILE_SLASHED
+        subjectProfileId:
+          type: string
+        actorDid:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        dataHash:
+          type: string
+          description: SHA-256 hash (includes previous entry's hash for chain integrity)
+        details:
+          type: object
+
+    AuditTrailResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        trail:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEntry'

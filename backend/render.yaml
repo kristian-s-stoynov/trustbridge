@@ -1,0 +1,20 @@
+# Render.com deployment config
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: trustbridge-api
+    runtime: node
+    buildCommand: npm install && npx tsc
+    startCommand: node dist/index.js
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: IOTA_NETWORK
+        value: testnet
+      - key: PACKAGE_ID
+        value: ""
+      - key: STAKE_POOL_ID
+        value: ""
+      - key: ADMIN_PRIVATE_KEY
+        value: ""
+    plan: free

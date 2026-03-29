@@ -157,12 +157,49 @@ export function listCreatedDids(): CreatedDID[] {
   return [...createdDids];
 }
 
+// Hardcoded demo DID — this was created on-chain and verified via RPC.
+// Object type: 0x2227...::identity::Identity on IOTA Rebased testnet.
+const DEMO_DID: CreatedDID = {
+  did: 'did:iota:testnet:0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369',
+  objectId: '0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369',
+  senderAddress: '0xcd48685401ee02cf019897f317772dea4c9ffd4ac15bf4a8a32b43bf48b5d15c',
+  explorerUrl: 'https://explorer.iota.org/object/0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369?network=testnet',
+  document: {
+    doc: {
+      id: 'did:iota:testnet:0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369',
+      verificationMethod: [{
+        id: 'did:iota:testnet:0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369#key-1',
+        controller: 'did:iota:testnet:0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369',
+        type: 'JsonWebKey2020',
+        publicKeyJwk: {
+          kty: 'OKP',
+          alg: 'EdDSA',
+          kid: 'ttu-5unvvn_MGkXCj6Gm0tL9Kw9eM4zGHEYabmSlZxA',
+          crv: 'Ed25519',
+          x: '8jb1cmI9b5UdDfA5kys52dzAdjS1IO_zXWdUqEVWch0',
+        },
+      }],
+    },
+    meta: {
+      created: '2026-03-29T22:43:20Z',
+      updated: '2026-03-29T22:43:20Z',
+    },
+  },
+  companyName: 'Acme Global Labs',
+  createdAt: '2026-03-29T22:43:20.964Z',
+};
+
 /**
  * Get the pre-created demo DID (Acme Global Labs).
- * Falls back to did-result.json if it exists.
+ * Uses hardcoded data (verified on-chain), with file and session fallbacks.
  */
-export function getDemoDid(): CreatedDID | null {
-  // Check if we have a saved result from the create-real-did script
+export function getDemoDid(): CreatedDID {
+  // 1. Check if we created a new DID in this session
+  if (createdDids.length > 0) {
+    return createdDids[0];
+  }
+
+  // 2. Check if did-result.json exists (from create-real-did script)
   try {
     const fs = require('fs');
     const path = require('path');
@@ -173,5 +210,7 @@ export function getDemoDid(): CreatedDID | null {
   } catch {
     // ignore
   }
-  return createdDids[0] || null;
+
+  // 3. Return the hardcoded demo DID (always works)
+  return DEMO_DID;
 }

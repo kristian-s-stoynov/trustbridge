@@ -1,356 +1,184 @@
-# TrustBridge — Frontend Integration Guide
+# TrustBridge — Frontend Integration Guide (Minimal MVP)
 
-## Quick Start
+## What This Is
+
+TrustBridge creates **real Decentralized Identifiers (DIDs)** on the **IOTA Rebased testnet**.
+Each DID is an on-chain object visible on the IOTA explorer.
+
+For the MVP demo, we have one pre-created DID for **Acme Global Labs**:
+
+```
+DID:      did:iota:testnet:0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369
+Explorer: https://explorer.iota.org/object/0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369?network=testnet
+```
+
+---
+
+## Backend API
+
+**Base URL:** `https://YOUR_DEPLOYED_URL` (or `http://localhost:3001` for local dev)
+
+There are only **4 endpoints**:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check |
+| GET | `/api/identity/demo` | Get the pre-created Acme Global Labs DID |
+| POST | `/api/identity/create-did` | Create a NEW DID on-chain (~10 seconds) |
+| GET | `/api/identity/resolve/<did>` | Resolve any DID from the IOTA testnet |
+
+---
+
+## Frontend Integration — Step by Step
+
+### Step 1: Show the Acme Global Labs DID
+
+On page load, fetch the demo DID:
+
+```javascript
+const res = await fetch('https://YOUR_BACKEND_URL/api/identity/demo');
+const data = await res.json();
+
+// data contains:
+// {
+//   success: true,
+//   did: "did:iota:testnet:0x3de46f...",
+//   objectId: "0x3de46f...",
+//   explorerUrl: "https://explorer.iota.org/object/0x3de46f...?network=testnet",
+//   companyName: "Acme Global Labs",
+//   document: {
+//     doc: {
+//       id: "did:iota:testnet:0x3de46f...",
+//       verificationMethod: [{ type: "JsonWebKey2020", ... }]
+//     },
+//     meta: { created: "2026-03-29T22:43:20Z", updated: "2026-03-29T22:43:20Z" }
+//   },
+//   senderAddress: "0xcd48685401ee02cf...",
+//   createdAt: "2026-03-29T22:43:25.123Z"
+// }
+```
+
+**What to display on the frontend:**
+- `data.companyName` → "Acme Global Labs"
+- `data.did` → The DID identifier (show it shortened or in full)
+- `data.explorerUrl` → Link to "View on IOTA Explorer"
+- `data.senderAddress` → The IOTA wallet address that controls this DID
+- `data.document.meta.created` → When the DID was created on-chain
+
+### Step 2: Create a New DID (optional — for demo "Create Profile" flow)
+
+```javascript
+const res = await fetch('https://YOUR_BACKEND_URL/api/identity/create-did', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ companyName: 'My New Company' }),
+});
+const data = await res.json();
+
+// Same response shape as above
+// ⚠️ This takes ~10 seconds because it:
+//    1. Generates a new Ed25519 keypair
+//    2. Funds it from the IOTA testnet faucet
+//    3. Publishes the DID Document on the blockchain
+```
+
+**Show a loading spinner** — this is a real blockchain transaction.
+
+### Step 3: Resolve a DID (optional — for "Verify Company" flow)
+
+```javascript
+const did = 'did:iota:testnet:0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369';
+const res = await fetch(`https://YOUR_BACKEND_URL/api/identity/resolve/${did}`);
+const data = await res.json();
+
+// {
+//   success: true,
+//   did: "did:iota:testnet:0x3de46f...",
+//   document: { doc: { ... }, meta: { ... } }
+// }
+```
+
+---
+
+## What the DID Contains
+
+A DID Document on IOTA looks like this:
+
+```json
+{
+  "doc": {
+    "id": "did:iota:testnet:0x3de46f837c3f...",
+    "verificationMethod": [{
+      "id": "did:iota:testnet:0x3de46f...#key-1",
+      "controller": "did:iota:testnet:0x3de46f...",
+      "type": "JsonWebKey2020",
+      "publicKeyJwk": {
+        "kty": "OKP",
+        "alg": "EdDSA",
+        "crv": "Ed25519",
+        "x": "8jb1cmI9b5UdDfA5kys52dzAdjS1IO_zXWdUqEVWch0"
+      }
+    }]
+  },
+  "meta": {
+    "created": "2026-03-29T22:43:20Z",
+    "updated": "2026-03-29T22:43:20Z"
+  }
+}
+```
+
+Key fields:
+- `doc.id` — The globally unique DID
+- `doc.verificationMethod` — The cryptographic key that proves ownership
+- `meta.created` — When it was published on the IOTA blockchain
+
+---
+
+## Architecture — How It Works
+
+```
+Frontend (GitHub Pages)
+   │
+   │  fetch('/api/identity/demo')
+   ▼
+Backend (Express on Render.com)
+   │
+   │  @iota/identity-wasm SDK
+   ▼
+IOTA Rebased Testnet (blockchain)
+   │
+   │  Identity Object (on-chain)
+   ▼
+IOTA Explorer (https://explorer.iota.org)
+```
+
+### Regarding Private Keys
+
+**The frontend NEVER sends private keys.** The architecture:
+
+- **Current MVP:** The backend generates a new keypair for each DID creation,
+  funds it from the testnet faucet, and signs the transaction server-side.
+  The frontend only calls REST endpoints.
+
+- **Production (future):** The frontend would use the IOTA Wallet SDK to let
+  the user sign transactions client-side, then the backend relays them.
+  Private keys would never leave the user's browser/wallet.
+
+---
+
+## CORS
+
+The backend has `cors()` enabled — any origin can call it. GitHub Pages will work without issues.
+
+---
+
+## Running Locally
 
 ```bash
 cd backend
-cp .env.example .env   # fill in after contract deployment
 npm install
-npm run dev             # starts on http://localhost:3001
+npm run dev   # starts on http://localhost:3001
 ```
-
-Swagger spec: `backend/openapi.yaml` — load it in https://editor.swagger.io or Swagger UI.
-
----
-
-## API Base URL
-
-```
-http://localhost:3001/api
-```
-
----
-
-## The Three Roles
-
-| Role | What they do | Key endpoints |
-|------|-------------|---------------|
-| **Attester** | Country's company registry (authority). Creates DID, issues Verifiable Credentials to companies. | `/identity/create-did`, `/identity/issue-credential` |
-| **Company** | Business building trust. Creates DID, creates profile, stakes tokens, completes deals. | `/identity/create-did`, `/profile/create`, `/staking/stake` |
-| **Verifier** | Any party checking a company before doing business. Verifies credentials, checks profile. | `/identity/verify-credential`, `/profile/{id}`, `/profile/{id}/trust-chain` |
-
----
-
-## Demo Flow — Step by Step
-
-This is the exact sequence to implement in the frontend for the hackathon demo.
-Each step includes the API call and expected result.
-
-### Step 1: Attester creates DID
-
-The attester is the **country's company registry** (e.g., German Handelsregister, UK Companies House).
-
-```
-POST /api/identity/create-did
-{
-  "companyName": "German Federal Company Registry"
-}
-```
-
-Response:
-```json
-{
-  "success": true,
-  "did": "did:iota:testnet:0x84b6...",
-  "document": { ... }
-}
-```
-
-**Save** `attesterDid` — needed in Step 4.
-
----
-
-### Step 2: Company creates DID
-
-```
-POST /api/identity/create-did
-{
-  "companyName": "Acme Corporation Ltd."
-}
-```
-
-**Save** `companyDid` — needed in Steps 3, 4.
-
----
-
-### Step 3: Company creates on-chain trust profile
-
-```
-POST /api/profile/create
-{
-  "companyName": "Acme Corporation Ltd.",
-  "domain": "acme.com",
-  "did": "<companyDid from Step 2>"
-}
-```
-
-Response:
-```json
-{
-  "success": true,
-  "profileId": "0xabc123...",
-  "transactionDigest": "..."
-}
-```
-
-**Save** `profileId` — this is the on-chain object ID, used in most subsequent calls.
-
-At this point: **☆☆☆☆ (0 stars)**
-
----
-
-### Step 4: Attester issues Verifiable Credential → ★ Verified
-
-This is the company registry confirming "this company legally exists."
-
-```
-POST /api/identity/issue-credential
-{
-  "issuerDid": "<attesterDid from Step 1>",
-  "subjectDid": "<companyDid from Step 2>",
-  "credentialType": "BusinessRegistrationCredential",
-  "claims": {
-    "registrationNumber": "HRB-12345",
-    "jurisdiction": "DE",
-    "incorporationDate": "2020-06-15",
-    "legalName": "Acme Corporation Ltd."
-  }
-}
-```
-
-Response:
-```json
-{
-  "success": true,
-  "jwt": "eyJhbGci...",
-  "credentialHash": "8cc7a975..."
-}
-```
-
-**Save** `jwt` and `credentialHash`.
-
----
-
-### Step 5: Anchor credential on-chain
-
-```
-POST /api/attestation/register
-{
-  "companyProfileId": "<profileId from Step 3>",
-  "attesterDid": "<attesterDid from Step 1>",
-  "credentialHash": "<credentialHash from Step 4>",
-  "credentialType": "BusinessRegistrationCredential"
-}
-```
-
-**Save** `recordId` from response.
-
----
-
-### Step 6: Mark profile as verified
-
-```
-POST /api/profile/<profileId>/verify
-{
-  "adminCapId": "<adminCapId>"
-}
-```
-
-Now: **★☆☆☆ (1 star) — Verified!**
-
----
-
-### Step 7: Company stakes tokens → ★★ Staked
-
-```
-POST /api/staking/stake
-{
-  "profileId": "<profileId>",
-  "amount": 10
-}
-```
-
-Now: **★★☆☆ (2 stars) — Verified + Staked!**
-
----
-
-### Step 8: Record completed deals → ★★★ Proven
-
-Call this 3 times (or have the backend call it after each deal):
-
-```
-POST /api/profile/<profileId>/record-deal
-{
-  "adminCapId": "<adminCapId>"
-}
-```
-
-After 3 deals: **★★★☆ (3 stars) — Verified + Staked + Proven!**
-
----
-
-### Step 9: Verifier checks profile
-
-This is what a potential business partner sees:
-
-```
-GET /api/profile/<profileId>/trust-chain
-```
-
-Response:
-```json
-{
-  "success": true,
-  "trustChain": {
-    "profile": {
-      "companyName": "Acme Corporation Ltd.",
-      "trustStars": 3,
-      "isVerified": true,
-      "isStaked": true,
-      "isProven": true,
-      "isVouched": false,
-      "completedDeals": 3,
-      "isSlashed": false
-    },
-    "auditTrail": [ ... ],
-    "stars": {
-      "verified": true,
-      "staked": true,
-      "proven": true,
-      "vouched": false,
-      "total": 3
-    }
-  }
-}
-```
-
-The verifier can also independently verify the credential:
-
-```
-POST /api/identity/verify-credential
-{
-  "jwt": "<jwt from Step 4>"
-}
-```
-
----
-
-### Step 10: Verify credential
-
-```
-POST /api/identity/verify-credential
-{
-  "jwt": "<jwt from Step 4>"
-}
-```
-
-Response:
-```json
-{
-  "success": true,
-  "verification": {
-    "isValid": true,
-    "issuerDid": "did:iota:testnet:0x84b6...",
-    "subjectDid": "did:iota:testnet:0x7fb8...",
-    "credentialType": "BusinessRegistrationCredential",
-    "issuedAt": "2026-03-27T00:23:21.986Z"
-  }
-}
-```
-
----
-
-### Step 11 (Demo — Revocation): Attester revokes credential
-
-Show what happens when a company fails compliance:
-
-```
-POST /api/attestation/revoke
-{
-  "attestationRecordId": "<recordId from Step 5>",
-  "adminCapId": "<adminCapId>"
-}
-```
-
----
-
-### Step 12 (Demo — Slashing): Platform slashes fraudulent company
-
-Show the economic penalty:
-
-```
-POST /api/staking/slash
-{
-  "profileId": "<profileId>",
-  "stakerAddress": "<company's IOTA address>",
-  "adminCapId": "<adminCapId>"
-}
-```
-
-Then slash the profile:
-
-```
-POST /api/profile/<profileId>/slash
-{
-  "adminCapId": "<adminCapId>"
-}
-```
-
-Now: **☆☆☆☆ (0 stars) — SLASHED. Stake confiscated.**
-
----
-
-### Step 13: Verify audit chain integrity
-
-Show that no one has tampered with the records:
-
-```
-GET /api/audit/verify
-```
-
-Response:
-```json
-{
-  "success": true,
-  "isValid": true
-}
-```
-
----
-
-## Audit Trail
-
-Every trust event is recorded in a hash-chain (each entry includes the hash of the previous entry).
-
-```
-GET /api/audit/trail/<profileId>
-```
-
-Event types:
-- `PROFILE_CREATED` — Company registered on the platform
-- `CREDENTIAL_ISSUED` — Attester issued a Verifiable Credential
-- `CREDENTIAL_REVOKED` — Attester revoked a credential
-- `PROFILE_VERIFIED` — Profile earned the ★ Verified star
-- `STAKE_DEPOSITED` — Company staked tokens
-- `STAKE_WITHDRAWN` — Company withdrew stake
-- `STAKE_SLASHED` — Company's stake was confiscated
-- `DEAL_RECORDED` — A deal was completed
-- `VOUCH_CREATED` — A peer company vouched
-- `PROFILE_SLASHED` — Profile was permanently flagged
-
----
-
-## Trust Stars Visual Reference
-
-```
-☆☆☆☆  →  New profile (no trust)
-★☆☆☆  →  Verified by authority (credential issued)
-★★☆☆  →  + Staked tokens as collateral
-★★★☆  →  + Proven through completed deals (3+)
-★★★★  →  + Vouched by peer companies
-```
-
-Slashed: all stars reset to 0, stake confiscated, profile permanently flagged.
 
 ---
 
@@ -358,28 +186,17 @@ Slashed: all stars reset to 0, stake confiscated, profile permanently flagged.
 
 All errors return:
 ```json
-{
-  "error": "Description of what went wrong"
-}
+{ "error": "Description of what went wrong" }
 ```
 
-HTTP status codes:
-- `200` — Success
-- `400` — Missing or invalid parameters
-- `404` — Object not found
-- `500` — Server/blockchain error
+HTTP codes: `200` success, `400` bad request, `404` not found, `500` server error.
 
 ---
 
-## Important IDs to Track
+## Live DID on IOTA Explorer
 
-After deploying contracts, the backend needs these in `.env`:
+The Acme Global Labs DID is already live on the IOTA testnet:
 
-| Variable | What | Where to get it |
-|----------|------|----------------|
-| `PACKAGE_ID` | Deployed Move package address | From `iota client publish` output |
-| `STAKE_POOL_ID` | Shared StakePool object | From publish output (shared object) |
-| `ADMIN_PRIVATE_KEY` | Admin signer key | From `iota client new-address` |
+**Explorer link:** https://explorer.iota.org/object/0x3de46f837c3f0eb735737e55ed54fd85706163dd5f6345cc5589f18fceab5369?network=testnet
 
-The frontend needs to pass `adminCapId` in requests that require admin auth.
-The AdminCap object ID comes from the publish output (owned object transferred to publisher).
+This is a real on-chain object of type `Identity` on the IOTA Move-based blockchain.
